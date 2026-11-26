@@ -17,9 +17,6 @@ artificial, la facturación electrónica y las compras a proveedores.
 
 ## Requisitos prioritarios
 
-Se priorizaron según su importancia para el negocio y su impacto en la arquitectura. Los siguientes son los más
-significativos (prioridad alta e impacto alto en la arquitectura):
-
 | ID | Requisito | Por qué importa |
 |---|---|---|
 | RF-01 | Registrar pedidos desde múltiples canales | Es la entrada de todo el negocio |
@@ -34,18 +31,88 @@ significativos (prioridad alta e impacto alto en la arquitectura):
 
 ## Decisión arquitectónica
 
-**Monolito modular con dominios bien separados**: una sola aplicación desplegable, dividida internamente en módulos
-(Pedidos, Inventario, Despacho y Rutas, Notificaciones e Incidencias), cada uno con su propia lógica y sin acceder
-a los datos de los demás.
+**Monolito modular con dominios bien separados** (Pedidos, Inventario, Despacho y Rutas, Notificaciones e Incidencias).
+Reduce riesgo y costo frente a microservicios, mantiene la consistencia entre pedidos e inventario y cubre los picos
+con réplicas, colas y despliegues progresivos. Se reconsideraría si los picos superan lo que logran las réplicas o
+si un módulo necesita escalar o cambiar a un ritmo distinto.
 
-**Por qué.** Frente a microservicios, reduce el riesgo y el costo para un equipo pequeño y una etapa inicial,
-mantiene la consistencia entre pedidos e inventario (clave para evitar duplicados e inconsistencias) y permite
-cubrir los picos con varias réplicas, colas para tareas asíncronas y despliegues progresivos, sin interrumpir a los
-clientes actuales.
+## Diseño de dominio: asignar un repartidor a una entrega
 
-**Trade-offs.** Escalar implica replicar toda la aplicación y no solo el módulo saturado; además exige disciplina
-para que los módulos no se acoplen.
+El flujo elegido parte de una entrega **lista para despacho** y termina con la entrega **asignada** a un repartidor
+y a una ruta, publicando el evento `EntregaAsignada`.
 
-**Cuándo reconsiderarla.** Si los picos superan de forma sostenida lo que se logra con réplicas, si un módulo
-necesita escalar o cambiar a un ritmo muy distinto, o si el equipo crece y necesita desplegar módulos por separado,
-se extraería ese módulo a un servicio.
+**Modelo.** Entidades `Delivery` y `Route` (raíces de agregado); objetos de valor `DeliveryId`, `CourierId`,
+`RouteId`, `DeliveryAddress` y `DeliveryStatus`.
+
+**Invariantes.**
+
+| ID | Regla |
+|---|---|
+| INV-01 | Una entrega solo tiene un repartidor activo |
+| INV-02 | Solo se asigna una entrega lista para despacho |
+| INV-03 | Una ruta no supera su capacidad |
+| INV-04 | Solo se asigna a un repartidor disponible |
+| INV-05 | Una entrega no puede estar en dos estados a la vez |
+| INV-06 | Una entrega cancelada o entregada no se asigna |
+
+**Contextos y contratos.** Cinco contextos que se comunican por eventos:
+
+```mermaid
+flowchart LR
+    Pedidos["Pedidos"]
+    Inventario["Inventario"]
+    Despacho["Despacho y Rutas (núcleo)"]
+    Notif["Notificaciones"]
+    Inc["Incidencias"]
+    Geo["Geolocalización (externo)"]
+    ERP["ERP o CRM (externo)"]
+
+    Inventario -->|"StockReservado"| Pedidos
+    Pedidos -->|"PedidoConfirmado"| Despacho
+    Despacho -->|"EntregaAsignada"| Notif
+    Despacho -->|"EntregaFallida"| Inc
+    Despacho -.->|"Capa anticorrupción"| Geo
+    Inventario -.->|"Capa anticorrupción"| ERP
+```
+
+**Capas y dependencias.** Tres capas con las dependencias hacia el dominio:
+
+```mermaid
+flowchart TB
+    API["API o controladores (entrada)"]
+    subgraph Application["Application"]
+        UC["AssignCourierUseCase"]
+        Puertos["Puertos: IDeliveryRepository, IRouteRepository, ICourierAvailabilityPort, IEventPublisher, IUnitOfWork"]
+    end
+    subgraph Domain["Domain"]
+        Entidades["Delivery, Route, objetos de valor, invariantes"]
+    end
+    subgraph Infrastructure["Infrastructure"]
+        Adaptadores["SqlDeliveryRepository, CourierShiftApiAdapter, QueueEventPublisher"]
+    end
+    API --> UC
+    UC --> Entidades
+    UC --> Puertos
+    Adaptadores -->|"implementa"| Puertos
+```
+
+**Puertos y adaptadores.**
+
+| Puerto | Adaptador propuesto |
+|---|---|
+| `IDeliveryRepository` | `SqlDeliveryRepository` |
+| `IRouteRepository` | `SqlRouteRepository` |
+| `ICourierAvailabilityPort` | `CourierShiftApiAdapter` |
+| `IEventPublisher` | `QueueEventPublisher` |
+| `IUnitOfWork` | `SqlUnitOfWork` |
+
+**Decisiones de diseño.** ADR-001 (estructura) y ADR-002 (dominio, puertos y adaptadores). Los diagramas C4
+actualizados están en la documentación de la actividad.
+
+## Cómo ejecutar las pruebas
+
+Requiere el SDK de .NET 8 o superior:
+
+```
+dotnet test
+```
