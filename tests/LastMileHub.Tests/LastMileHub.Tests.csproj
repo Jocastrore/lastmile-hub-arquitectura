@@ -6,6 +6,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="xunit" Version="2.9.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.*" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
@@ -13,5 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\LastMileHub.Domain\LastMileHub.Domain.csproj" />
     <ProjectReference Include="..\..\src\LastMileHub.Application\LastMileHub.Application.csproj" />
+    <ProjectReference Include="..\..\src\LastMileHub.Infrastructure\LastMileHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\LastMileHub.Api\LastMileHub.Api.csproj" />
   </ItemGroup>
 </Project>

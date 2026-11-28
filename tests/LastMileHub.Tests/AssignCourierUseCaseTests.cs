@@ -1,5 +1,6 @@
 using LastMileHub.Application.Dispatch;
 using LastMileHub.Domain.Dispatch;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LastMileHub.Tests;
 
@@ -11,7 +12,7 @@ public class AssignCourierUseCaseTests
 
     private AssignCourierUseCase Sut(bool available = true, bool availabilityFails = false) => new(
         _deliveries, _routes, new FakeAvailability(available, availabilityFails), _events,
-        new PassThroughUnitOfWork(), TimeProvider.System);
+        new PassThroughUnitOfWork(), TimeProvider.System, NullLogger<AssignCourierUseCase>.Instance);
 
     private (Delivery Delivery, Route Route) Seed(int capacity = 2)
     {
