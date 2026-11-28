@@ -38,15 +38,10 @@ si un módulo necesita escalar o cambiar a un ritmo distinto.
 
 ## Diseño de dominio: asignar un repartidor a una entrega
 
-El flujo elegido parte de una entrega **lista para despacho** y termina con la entrega **asignada** a un repartidor
-y a una ruta, publicando el evento `EntregaAsignada`.
+El flujo parte de una entrega **lista para despacho** y termina con la entrega **asignada** a un repartidor y a una
+ruta, publicando el evento `EntregaAsignada`.
 
-**Modelo.** Entidades `Delivery` y `Route` (raíces de agregado); objetos de valor `DeliveryId`, `CourierId`,
-`RouteId`, `DeliveryAddress` y `DeliveryStatus`.
-
-**Invariantes.**
-
-| ID | Regla |
+| ID | Invariante |
 |---|---|
 | INV-01 | Una entrega solo tiene un repartidor activo |
 | INV-02 | Solo se asigna una entrega lista para despacho |
@@ -55,7 +50,7 @@ y a una ruta, publicando el evento `EntregaAsignada`.
 | INV-05 | Una entrega no puede estar en dos estados a la vez |
 | INV-06 | Una entrega cancelada o entregada no se asigna |
 
-**Contextos y contratos.** Cinco contextos que se comunican por eventos:
+**Contextos y contratos:**
 
 ```mermaid
 flowchart LR
@@ -75,11 +70,11 @@ flowchart LR
     Inventario -.->|"Capa anticorrupción"| ERP
 ```
 
-**Capas y dependencias.** Tres capas con las dependencias hacia el dominio:
+**Capas y dependencias** (las flechas apuntan hacia el dominio):
 
 ```mermaid
 flowchart TB
-    API["API o controladores (entrada)"]
+    API["Api: endpoints, DTOs y mapeo de errores"]
     subgraph Application["Application"]
         UC["AssignCourierUseCase"]
         Puertos["Puertos: IDeliveryRepository, IRouteRepository, ICourierAvailabilityPort, IEventPublisher, IUnitOfWork"]
@@ -88,7 +83,7 @@ flowchart TB
         Entidades["Delivery, Route, objetos de valor, invariantes"]
     end
     subgraph Infrastructure["Infrastructure"]
-        Adaptadores["SqlDeliveryRepository, CourierShiftApiAdapter, QueueEventPublisher"]
+        Adaptadores["SqliteDeliveryRepository, SqliteRouteRepository, CourierShiftAdapter, OutboxEventPublisher, SqliteSession"]
     end
     API --> UC
     UC --> Entidades
@@ -96,23 +91,79 @@ flowchart TB
     Adaptadores -->|"implementa"| Puertos
 ```
 
-**Puertos y adaptadores.**
+## Implementación del flujo (vertical slice)
 
-| Puerto | Adaptador propuesto |
-|---|---|
-| `IDeliveryRepository` | `SqlDeliveryRepository` |
-| `IRouteRepository` | `SqlRouteRepository` |
-| `ICourierAvailabilityPort` | `CourierShiftApiAdapter` |
-| `IEventPublisher` | `QueueEventPublisher` |
-| `IUnitOfWork` | `SqlUnitOfWork` |
-
-**Decisiones de diseño.** ADR-001 (estructura) y ADR-002 (dominio, puertos y adaptadores). Los diagramas C4
-actualizados están en la documentación de la actividad.
-
-## Cómo ejecutar las pruebas
-
-Requiere el SDK de .NET 8 o superior:
+El flujo está implementado de punta a punta:
 
 ```
+POST /api/deliveries/{id}/assignment
+  Api (endpoint, DTO, validación, mapeo de errores)
+  -> Application (AssignCourierUseCase y puertos)
+  -> Domain (Delivery y Route con las invariantes)
+  -> Infrastructure (SQLite, outbox y adaptador de turnos) a través de los puertos
+```
+
+| Capa | Proyecto | Depende de |
+|---|---|---|
+| Domain | `src/LastMileHub.Domain` | nada |
+| Application | `src/LastMileHub.Application` | Domain |
+| Infrastructure | `src/LastMileHub.Infrastructure` | Application |
+| Api | `src/LastMileHub.Api` | Infrastructure (solo para componer las dependencias) |
+| Pruebas | `tests/LastMileHub.Tests` | todas |
+
+### Requisitos
+
+SDK de .NET 8 o superior (si usas otra versión, cambia `TargetFramework` en `Directory.Build.props`).
+
+### Cómo ejecutar
+
+```
+dotnet restore
+dotnet build
 dotnet test
 ```
+
+Para levantar la API con datos de demostración:
+
+```
+# PowerShell
+$env:Seed__Demo="true"; dotnet run --project src/LastMileHub.Api --urls http://localhost:5080
+
+# Linux, macOS o Git Bash
+Seed__Demo=true dotnet run --project src/LastMileHub.Api --urls http://localhost:5080
+```
+
+Las migraciones (`src/LastMileHub.Infrastructure/Migrations/*.sql`) se aplican solas al arrancar y quedan
+registradas en la tabla `schema_version`. La base de datos es el archivo `lastmilehub.db`, que se ignora en git.
+Para reiniciar la demostración, detén la API y borra ese archivo.
+
+### Escenarios de demostración
+
+Se ejecutan con el archivo `requests.http` (extensión REST Client de VS Code), en este orden:
+
+| Escenario | Entrega | Repartidor | Ruta | Resultado |
+|---|---|---|---|---|
+| Éxito | 1111... | aaaa... | cccc... | 200 |
+| Asignación duplicada | 1111... | aaaa... | cccc... | 409 `DELIVERY_ALREADY_ASSIGNED` |
+| Entrega inexistente | 9999... | aaaa... | cccc... | 404 `DELIVERY_NOT_FOUND` |
+| Repartidor fuera de turno | 2222... | bbbb... | cccc... | 422 `COURIER_NOT_AVAILABLE` |
+| Ruta saturada | 3333... | aaaa... | dddd... | 409 `ROUTE_SATURATED` |
+| Entrega cancelada | 4444... | aaaa... | cccc... | 409 `DELIVERY_NOT_ASSIGNABLE` |
+
+### Pruebas
+
+| Tipo | Archivo | Qué comprueba |
+|---|---|---|
+| Unitarias de dominio | `DomainTests.cs` | INV-01, INV-02, INV-03 e INV-06 |
+| Caso de uso con dobles | `AssignCourierUseCaseTests.cs` | Orquestación, errores y ausencia de efectos secundarios |
+| Integración | `AssignCourierApiTests.cs` | Endpoint, dominio y SQLite real; errores 404, 409, 422, 503 y 400 |
+| Arquitectura | `ArchitectureTests.cs` | Dirección de las dependencias entre capas |
+
+El flujo de integración continua (`.github/workflows/ci.yml`) compila, ejecuta las pruebas, revisa
+vulnerabilidades en dependencias y guarda el reporte de resultados.
+
+### Riesgos y observabilidad
+
+Los riesgos operativos y de seguridad, sus mitigaciones y la evidencia de verificación están en
+`docs/actividad-4/registro-actividad-4.md`. La observabilidad usa logs estructurados con identificador de
+correlación, métricas de asignaciones y un endpoint `/health`, sin registrar datos personales.
