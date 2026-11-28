@@ -1,0 +1,45 @@
+### Requiere: Seed__Demo=true. Ejecutar en este orden (extensión REST Client de VS Code).
+@base = http://localhost:5080
+
+### 0. Salud del servicio
+GET {{base}}/health
+
+### 1. Asignación exitosa -> 200
+POST {{base}}/api/deliveries/11111111-1111-1111-1111-111111111111/assignment
+Content-Type: application/json
+X-Correlation-Id: demo-001
+
+{ "courierId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "routeId": "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+
+### 2. Consultar la entrega -> Assigned
+GET {{base}}/api/deliveries/11111111-1111-1111-1111-111111111111
+
+### 3. Asignación duplicada -> 409 DELIVERY_ALREADY_ASSIGNED
+POST {{base}}/api/deliveries/11111111-1111-1111-1111-111111111111/assignment
+Content-Type: application/json
+
+{ "courierId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "routeId": "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+
+### 4. Entrega inexistente -> 404 DELIVERY_NOT_FOUND
+POST {{base}}/api/deliveries/99999999-9999-9999-9999-999999999999/assignment
+Content-Type: application/json
+
+{ "courierId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "routeId": "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+
+### 5. Repartidor fuera de turno -> 422 COURIER_NOT_AVAILABLE
+POST {{base}}/api/deliveries/22222222-2222-2222-2222-222222222222/assignment
+Content-Type: application/json
+
+{ "courierId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "routeId": "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+
+### 6. Ruta saturada -> 409 ROUTE_SATURATED
+POST {{base}}/api/deliveries/33333333-3333-3333-3333-333333333333/assignment
+Content-Type: application/json
+
+{ "courierId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "routeId": "dddddddd-dddd-dddd-dddd-dddddddddddd" }
+
+### 7. Entrega cancelada -> 409 DELIVERY_NOT_ASSIGNABLE
+POST {{base}}/api/deliveries/44444444-4444-4444-4444-444444444444/assignment
+Content-Type: application/json
+
+{ "courierId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "routeId": "cccccccc-cccc-cccc-cccc-cccccccccccc" }
