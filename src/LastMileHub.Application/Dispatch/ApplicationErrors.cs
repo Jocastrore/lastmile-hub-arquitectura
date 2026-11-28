@@ -22,3 +22,7 @@ public sealed class CourierNotAvailableException(CourierId id)
 public sealed class CourierAvailabilityUnavailableException(Exception? inner = null)
     : ApplicationErrorException("COURIER_AVAILABILITY_UNAVAILABLE",
         "The courier availability service is not reachable. Try again later.", inner);
+
+/// <summary>Otra operación modificó los mismos datos al mismo tiempo.</summary>
+public sealed class ConcurrencyConflictException(string detail)
+    : ApplicationErrorException("CONCURRENCY_CONFLICT", detail);
