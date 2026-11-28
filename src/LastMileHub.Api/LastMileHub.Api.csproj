@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\LastMileHub.Infrastructure\LastMileHub.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
